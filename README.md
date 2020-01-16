@@ -19,3 +19,5 @@ Host dmb_target
     Port 22
     User root
     ProxyCommand ssh -q -W %h:%p dmb_jump
+
+参考Chemprop
