@@ -19,13 +19,17 @@ def data_zipper(*itors):
     return result
 
 
-def main(path):
-    data_from_file = readfile.data_reader(path)
-    data_from_feature = feature.feature_extractor(data_from_file.all_smiles)
+def data_zip_all(args):
+    data_from_file = readfile.data_reader(args.data_path)
+    data_from_feature = feature.feature_extractor(
+        args, data_from_file.all_smiles)
     data_ziped = data_zipper(data_from_feature.all_dgl,
                              data_from_feature.all_mol_feat, data_from_file.all_targets)
-    data_from_split = split.splitor(data_ziped)
-    return data_from_split
+    return data_ziped
+
+
+def split(zipped_data):
+    pass
 
 
 if __name__ == '__main__':

@@ -1,6 +1,39 @@
 from torch import nn
 import torch
 import dgl
+import random
+random.seed(666)
+torch.random.manual_seed(666)
+
+
+def get_toy_data():
+    dgl_graph = dgl.DGLGraph()
+    dgl_graph.add_nodes(1, {'n_input': torch.tensor(
+        [1, 1, 1, 1], dtype=torch.float32).reshape(1, -1)})
+    dgl_graph.add_nodes(1, {'n_input': torch.tensor(
+        [2, 2, 2, 2], dtype=torch.float32).reshape(1, -1)})
+    dgl_graph.add_nodes(1, {'n_input': torch.tensor(
+        [3, 3, 3, 3], dtype=torch.float32).reshape(1, -1)})
+    dgl_graph.add_nodes(1, {'n_input': torch.tensor(
+        [4, 4, 4, 4], dtype=torch.float32).reshape(1, -1)})
+    dgl_graph.add_edge(0, 1, {'e_input': torch.tensor(
+        [0.1, 0.1, 0.1], dtype=torch.float32).reshape(1, -1)})
+    dgl_graph.add_edge(1, 2, {'e_input': torch.tensor(
+        [1.2, 1.2, 1.2], dtype=torch.float32).reshape(1, -1)})
+    dgl_graph.add_edge(0, 2, {'e_input': torch.tensor(
+        [0.2, 0.2, 0.2], dtype=torch.float32).reshape(1, -1)})
+    dgl_graph.add_edge(2, 3, {'e_input': torch.tensor(
+        [2.3, 2.3, 2.3], dtype=torch.float32).reshape(1, -1)})
+
+    dgl_graph.add_edge(1, 0, {'e_input': torch.tensor(
+        [0.1, 0.1, 0.1], dtype=torch.float32).reshape(1, -1)})
+    dgl_graph.add_edge(2, 1, {'e_input': torch.tensor(
+        [1.2, 1.2, 1.2], dtype=torch.float32).reshape(1, -1)})
+    dgl_graph.add_edge(2, 0, {'e_input': torch.tensor(
+        [0.2, 0.2, 0.2], dtype=torch.float32).reshape(1, -1)})
+    dgl_graph.add_edge(3, 2, {'e_input': torch.tensor(
+        [2.3, 2.3, 2.3], dtype=torch.float32).reshape(1, -1)})
+    return dgl_graph
 
 
 class FullConn(nn.Module):
@@ -10,7 +43,7 @@ class FullConn(nn.Module):
             torch.rand((mol_feat_size+dgl_feat_size, 1), requires_grad=True))
 
     def forward(self, feat):
-        result = torch.mm(feat, self.weight_full)
+        result = torch.squeeze(torch.mm(feat, self.weight_full))
         return result
 
 
@@ -136,13 +169,8 @@ class DMPNN(nn.Module):
 
 
 class MainModel(nn.Module):
-    def __init__(self, args):
+    def __init__(self, input_atom_feat_size, input_edge_feat_size, hidden_feat_size, hidden_layer_num, mol_feat_size):
         super().__init__()
-        input_atom_feat_size = args.atom_feat_size
-        input_edge_feat_size = args.bond_feat_size
-        hidden_feat_size = args.hidden_feat_size
-        mol_feat_size = args.mol_feat_size
-        hidden_layer_num = args.hidden_layer_num
         self.convert = FeatConvert(
             input_atom_feat_size, input_edge_feat_size, hidden_feat_size)
         self.edge_init = EdgeFeatInit(
@@ -165,6 +193,13 @@ class MainModel(nn.Module):
         return result
 
 
+def train():
+    model = MainModel(4, 3, 2, 5, 3)
+    toy_dgl = get_toy_data()
+    model.train()
+    logits = model(toy_dgl, torch.tensor([8, 8, 8], dtype=torch.float32))
+    return logits
+
 
 if __name__ == '__main__':
-    pass
+    train()
