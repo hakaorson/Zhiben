@@ -3,7 +3,6 @@
 '''
 from Preprocess import readfile
 from Preprocess import feature
-from Preprocess import split
 
 
 class final_struct():
@@ -26,10 +25,6 @@ def data_zip_all(args):
     data_ziped = data_zipper(data_from_feature.all_dgl,
                              data_from_feature.all_mol_feat, data_from_file.all_targets)
     return data_ziped
-
-
-def split(zipped_data):
-    pass
 
 
 if __name__ == '__main__':

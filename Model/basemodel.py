@@ -7,10 +7,12 @@ class FullConn(nn.Module):
     def __init__(self, mol_feat_size, dgl_feat_size):
         super().__init__()
         self.weight_full = nn.Parameter(
-            torch.rand((mol_feat_size+dgl_feat_size, 1), requires_grad=True))
+            torch.rand((mol_feat_size+dgl_feat_size, 1), requires_grad=True)-0.5)
+        self.activate = nn.Sigmoid()
 
     def forward(self, feat):
-        result = torch.mm(feat, self.weight_full)
+        result = torch.mm(feat, self.weight_full).reshape(-1)
+        result = self.activate(result)
         return result
 
 
@@ -26,7 +28,8 @@ class ReadOut(nn.Module):
     def __init__(self, input_atom_feat_size, hidden_feat_size):
         super().__init__()
         self.weight_output = nn.Parameter(
-            torch.rand((input_atom_feat_size+hidden_feat_size, hidden_feat_size), requires_grad=True))
+            torch.rand((input_atom_feat_size+hidden_feat_size, hidden_feat_size), requires_grad=True)-0.5)
+        self.activate = nn.Sigmoid()
 
     def readout_msg(self, edge):
         edge_data = edge.data['hidden']
@@ -41,8 +44,8 @@ class ReadOut(nn.Module):
         node_sum_feat = node.data['out_sum']
         node_feat_cat = torch.cat((node_origin_feat, node_sum_feat), -1)
         node_feat_mm = torch.mm(node_feat_cat, self.weight_output)
-        # TODO 激活函数
-        node_feat_final = node_feat_mm
+        node_feat_act = self.activate(node_feat_mm)
+        node_feat_final = node_feat_act
         return {'feat_final': node_feat_final}
 
     def forward(self, dgl_data: dgl.DGLGraph):
@@ -57,18 +60,20 @@ class FeatConvert(nn.Module):
     def __init__(self, input_atom_feat_size, input_edge_feat_size, hidden_feat_size):
         super().__init__()
         self.weight_feat2hidden_atom = nn.Parameter(
-            torch.rand((input_atom_feat_size, hidden_feat_size), requires_grad=True))
+            torch.rand((input_atom_feat_size, hidden_feat_size), requires_grad=True)-0.5)
         self.weight_feat2hidden_edge = nn.Parameter(
-            torch.rand((input_edge_feat_size, hidden_feat_size), requires_grad=True))
+            torch.rand((input_edge_feat_size, hidden_feat_size), requires_grad=True)-0.5)
+        self.activate = nn.Sigmoid()
 
     def forward(self, dgl_data: dgl.DGLGraph):
         node_feature = dgl_data.ndata['n_input']
         node_feature_new = torch.mm(node_feature, self.weight_feat2hidden_atom)
         edge_feature = dgl_data.edata['e_input']
         edge_feature_new = torch.mm(edge_feature, self.weight_feat2hidden_edge)
-        # TODO 添加激活函数
-        dgl_data.ndata['n_input'] = node_feature_new
-        dgl_data.edata['e_input'] = edge_feature_new
+        node_feature_act = self.activate(node_feature_new)
+        edge_feature_act = self.activate(edge_feature_new)
+        dgl_data.ndata['n_input'] = node_feature_act
+        dgl_data.edata['e_input'] = edge_feature_act
         return dgl_data
 
 
@@ -76,15 +81,16 @@ class EdgeFeatInit(nn.Module):
     def __init__(self, input_atom_feat_size, input_edge_feat_size, hidden_feat_size):
         super().__init__()
         self.weight_feat2hidden = nn.Parameter(
-            torch.rand((input_atom_feat_size+input_edge_feat_size, hidden_feat_size), requires_grad=True))
+            torch.rand((input_atom_feat_size+input_edge_feat_size, hidden_feat_size), requires_grad=True)-0.5)
+        self.activate = nn.Sigmoid()
 
     def edge_init(self, edge):
         edge_data = edge.data['e_input']
         edge_src = edge.src['n_input']
         edge_concate = torch.cat((edge_data, edge_src), -1)
         edge_init = torch.mm(edge_concate, self.weight_feat2hidden)
-        # TODO 添加激活函数
-        return {'init': edge_init, 'hidden': edge_init}
+        edge_act = self.activate(edge_init)
+        return {'init': edge_act, 'hidden': edge_act}
 
     def forward(self, dgl_data: dgl.DGLGraph):
         dgl_data.apply_edges(self.edge_init)
@@ -95,7 +101,8 @@ class SingleLayer(nn.Module):
     def __init__(self, hidden_feat_size):
         super().__init__()
         self.weight_h2h_edge = nn.Parameter(torch.rand(
-            hidden_feat_size, hidden_feat_size), requires_grad=True)
+            (hidden_feat_size, hidden_feat_size), requires_grad=True)-0.5)
+        self.activate = nn.Sigmoid()
 
     def gcn_msg(self, edge):  # 结点到边的信息传递（通过src和dst获取源点和目标点的特征）
         # 将所有的边，每一个维度的数据整合在一起，比如100条边，每条边有长度为8的向量，那么转换后就成了10*100的张量
@@ -111,9 +118,8 @@ class SingleLayer(nn.Module):
         pseud_converge = edge.src['mail']-edge.data['hidden']
         feature_mm = torch.mm(pseud_converge, self.weight_h2h_edge)
         feature_add_init = torch.add(feature_mm, edge.data['init'])
-        # TODO 激活函数
-        feature_output = feature_add_init
-        return {'hidden': feature_output}
+        feature_act = self.activate(feature_add_init)
+        return {'hidden': feature_act}
 
     def forward(self, dgl_data: dgl.DGLGraph):
         # 注意这个函数指挥更新node feature
@@ -163,7 +169,6 @@ class MainModel(nn.Module):
         fusion_feat = self.feat_fusion(dgl_feat, mol_feat)
         result = self.full_conn(fusion_feat)
         return result
-
 
 
 if __name__ == '__main__':
