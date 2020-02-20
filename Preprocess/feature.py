@@ -3,13 +3,29 @@
 包括graph_feature,node_feature,edge_feature
 '''
 from rdkit import Chem
+import rdkit
 import dgl
 import torch
 from descriptastorus.descriptors import rdNormalizedDescriptors
+import numpy as np
 
-
-def onehot_embed(val, choice):
-    return []
+# Atom feature sizes
+MAX_ATOMIC_NUM = 100
+ATOM_FEATURES = {
+    'atomic_num': list(range(MAX_ATOMIC_NUM)),
+    'degree': [0, 1, 2, 3, 4, 5],
+    'formal_charge': [-1, -2, 1, 2, 0],
+    'chiral_tag': [0, 1, 2, 3],
+    'num_Hs': [0, 1, 2, 3, 4],
+    'hybridization': [
+        Chem.rdchem.HybridizationType.SP,
+        Chem.rdchem.HybridizationType.SP2,
+        Chem.rdchem.HybridizationType.SP3,
+        Chem.rdchem.HybridizationType.SP3D,
+        Chem.rdchem.HybridizationType.SP3D2
+    ],
+}
+BOND_FEATURES = {'stereo': [0, 1, 2, 3, 4, 5]}
 
 
 class feature_extractor():
@@ -36,6 +52,12 @@ class feature_data_item():
         self.dgl_data = self.get_dgl_graph(self.mol)
         self.mol_feat = self.get_mol_feature(self.smiles)
 
+    def onehot_embed(self, val, choice):
+        encoding = [0] * (len(choice) + 1)
+        index = choice.index(val) if val in choice else -1
+        encoding[index] = 1
+        return encoding
+
     def get_dgl_graph(self, mol):
         dgl_graph = dgl.DGLGraph()
         atoms_num = mol.GetNumAtoms()
@@ -58,28 +80,54 @@ class feature_data_item():
 
     def get_node_feature(self, mol_node):
         node_feature = []
-        node_feature.append(int(mol_node.GetAtomicNum()))
-        node_feature.append(int(mol_node.GetTotalDegree()))
-        node_feature.append(int(mol_node.GetFormalCharge()))
-        node_feature.append(int(mol_node.GetChiralTag()))
-        node_feature.append(int(mol_node.GetTotalNumHs()))
-        node_feature.append(int(mol_node.GetHybridization()))
-        node_feature.append(int(mol_node.GetIsAromatic()))
-        node_feature.append(float(mol_node.GetMass()))
+        node_feature.extend(self.onehot_embed(
+            int(mol_node.GetAtomicNum()) - 1, ATOM_FEATURES['atomic_num']))
+        node_feature.extend(self.onehot_embed(
+            int(mol_node.GetTotalDegree()), ATOM_FEATURES['degree']))
+        node_feature.extend(self.onehot_embed(
+            int(mol_node.GetFormalCharge()), ATOM_FEATURES['formal_charge']))
+        node_feature.extend(self.onehot_embed(
+            int(mol_node.GetChiralTag()), ATOM_FEATURES['chiral_tag']))
+        node_feature.extend(self.onehot_embed(
+            int(mol_node.GetTotalNumHs()), ATOM_FEATURES['num_Hs']))
+        node_feature.extend(self.onehot_embed(
+            int(mol_node.GetHybridization()), ATOM_FEATURES['hybridization']))
+        node_feature.append(1 if mol_node.GetIsAromatic() else 0)
+        node_feature.append(mol_node.GetMass() * 0.01)
         return node_feature
 
     def get_bond_feature(self, mol_bond):
         bond_feature = []
-        bond_feature.append(int(mol_bond.GetIsConjugated()))
-        bond_feature.append(int(mol_bond.IsInRing()))
-        bond_feature.append(int(mol_bond.GetStereo()))
+        bond_type = mol_bond.GetBondType()
+        bond_feature.append(int(bond_type == Chem.rdchem.BondType.SINGLE))
+        bond_feature.append(int(bond_type == Chem.rdchem.BondType.DOUBLE))
+        bond_feature.append(int(bond_type == Chem.rdchem.BondType.TRIPLE))
+        bond_feature.append(int(bond_type == Chem.rdchem.BondType.AROMATIC))
+        bond_feature.append(int(mol_bond.GetIsConjugated())
+                            if bond_type is not None else 0)
+        bond_feature.append(int(mol_bond.IsInRing())
+                            if bond_type is not None else 0)
+        bond_feature.extend(self.onehot_embed(
+            int(mol_bond.GetStereo()), BOND_FEATURES['stereo']))
         return bond_feature
 
     def get_mol_feature(self, smiles):
+        '''
+        使用morgan feature
+        '''
+        mol = Chem.MolFromSmiles(smiles)
+        features_vec = Chem.AllChem.GetMorganFingerprintAsBitVect(
+            mol, 2, nBits=2048)
+        features = np.zeros((1,))
+        rdkit.DataStructs.ConvertToNumpyArray(features_vec, features)
+        features = torch.tensor(features, dtype=torch.float32)
+        return features
+        '''
         mol_feat_generator = rdNormalizedDescriptors.RDKit2DNormalized()
         mol_feature = mol_feat_generator.process(smiles)[1:]
         mol_feature = torch.tensor(mol_feature, dtype=torch.float32)
         return mol_feature
+        '''
 
 
 if __name__ == '__main__':

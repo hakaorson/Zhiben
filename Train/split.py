@@ -1,11 +1,13 @@
 '''
 划分数据集
 '''
+import random
 
 
 class splitor():
     def __init__(self, args, data):
         self.data = data
+        random.shuffle(self.data)  # 必须做初始的随机，因为原始数据分布不均匀
         self.length = len(self.data)
         split_rate = self.split_rate(args.split)
         cut1 = int(split_rate[0]*self.length)

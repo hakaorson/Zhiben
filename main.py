@@ -7,5 +7,5 @@ if __name__ == '__main__':
     args = init_args.init_train_pars()
     dataset = preprocess.data_zip_all(args)
     model = basemodel.MainModel(args)
-    train_struct.train(args, model, dataset)
+    train_struct.simple(args, model, dataset)
     pass

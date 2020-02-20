@@ -6,14 +6,16 @@ import dgl
 class FullConn(nn.Module):
     def __init__(self, mol_feat_size, dgl_feat_size):
         super().__init__()
-        self.weight_full = nn.Parameter(
-            torch.rand((mol_feat_size+dgl_feat_size, 1), requires_grad=True)-0.5)
+        self.full_conn_1 = nn.Linear(
+            mol_feat_size+dgl_feat_size, mol_feat_size)
+        self.full_conn_2 = nn.Linear(mol_feat_size, 1)
         self.activate = nn.Sigmoid()
 
     def forward(self, feat):
-        result = torch.mm(feat, self.weight_full).reshape(-1)
-        result = self.activate(result)
-        return result
+        result_1 = self.full_conn_1(feat)
+        result_2 = self.full_conn_2(result_1)
+        result_end = self.activate(result_2.reshape(-1))
+        return result_end
 
 
 class FeatFusion(nn.Module):
@@ -27,8 +29,8 @@ class FeatFusion(nn.Module):
 class ReadOut(nn.Module):
     def __init__(self, input_atom_feat_size, hidden_feat_size):
         super().__init__()
-        self.weight_output = nn.Parameter(
-            torch.rand((input_atom_feat_size+hidden_feat_size, hidden_feat_size), requires_grad=True)-0.5)
+        self.full_conn = nn.Linear(
+            input_atom_feat_size+hidden_feat_size, hidden_feat_size)
         self.activate = nn.Sigmoid()
 
     def readout_msg(self, edge):
@@ -36,14 +38,15 @@ class ReadOut(nn.Module):
         return {'edge_mail': edge_data}
 
     def readout_reduce(self, node):
-        node_mail = torch.sum(node.mailbox['edge_mail'], 1)
+        node_mail = torch.mean(node.mailbox['edge_mail'], 1)
+        # TODO sum 改成了 mean
         return {'out_sum': node_mail}
 
     def readout_nodeupdate(self, node):
         node_origin_feat = node.data['n_input']
         node_sum_feat = node.data['out_sum']
         node_feat_cat = torch.cat((node_origin_feat, node_sum_feat), -1)
-        node_feat_mm = torch.mm(node_feat_cat, self.weight_output)
+        node_feat_mm = self.full_conn(node_feat_cat)
         node_feat_act = self.activate(node_feat_mm)
         node_feat_final = node_feat_act
         return {'feat_final': node_feat_final}
@@ -52,24 +55,23 @@ class ReadOut(nn.Module):
         dgl_data.update_all(
             self.readout_msg, self.readout_reduce, self.readout_nodeupdate)
         gcn_feat = dgl_data.ndata['feat_final']
-        result = torch.sum(gcn_feat, 0)
+        result = torch.mean(gcn_feat, 0)
+        # TODO sum 改成 mean
         return result
 
 
 class FeatConvert(nn.Module):
     def __init__(self, input_atom_feat_size, input_edge_feat_size, hidden_feat_size):
         super().__init__()
-        self.weight_feat2hidden_atom = nn.Parameter(
-            torch.rand((input_atom_feat_size, hidden_feat_size), requires_grad=True)-0.5)
-        self.weight_feat2hidden_edge = nn.Parameter(
-            torch.rand((input_edge_feat_size, hidden_feat_size), requires_grad=True)-0.5)
+        self.full_conn_a = nn.Linear(input_atom_feat_size, hidden_feat_size)
+        self.full_conn_e = nn.Linear(input_edge_feat_size, hidden_feat_size)
         self.activate = nn.Sigmoid()
 
     def forward(self, dgl_data: dgl.DGLGraph):
         node_feature = dgl_data.ndata['n_input']
-        node_feature_new = torch.mm(node_feature, self.weight_feat2hidden_atom)
+        node_feature_new = self.full_conn_a(node_feature)
         edge_feature = dgl_data.edata['e_input']
-        edge_feature_new = torch.mm(edge_feature, self.weight_feat2hidden_edge)
+        edge_feature_new = self.full_conn_e(edge_feature)
         node_feature_act = self.activate(node_feature_new)
         edge_feature_act = self.activate(edge_feature_new)
         dgl_data.ndata['n_input'] = node_feature_act
@@ -80,15 +82,15 @@ class FeatConvert(nn.Module):
 class EdgeFeatInit(nn.Module):
     def __init__(self, input_atom_feat_size, input_edge_feat_size, hidden_feat_size):
         super().__init__()
-        self.weight_feat2hidden = nn.Parameter(
-            torch.rand((input_atom_feat_size+input_edge_feat_size, hidden_feat_size), requires_grad=True)-0.5)
+        self.full_conn = nn.Linear(
+            input_atom_feat_size+input_edge_feat_size, hidden_feat_size)
         self.activate = nn.Sigmoid()
 
     def edge_init(self, edge):
         edge_data = edge.data['e_input']
         edge_src = edge.src['n_input']
         edge_concate = torch.cat((edge_data, edge_src), -1)
-        edge_init = torch.mm(edge_concate, self.weight_feat2hidden)
+        edge_init = self.full_conn(edge_concate)
         edge_act = self.activate(edge_init)
         return {'init': edge_act, 'hidden': edge_act}
 
@@ -100,8 +102,7 @@ class EdgeFeatInit(nn.Module):
 class SingleLayer(nn.Module):
     def __init__(self, hidden_feat_size):
         super().__init__()
-        self.weight_h2h_edge = nn.Parameter(torch.rand(
-            (hidden_feat_size, hidden_feat_size), requires_grad=True)-0.5)
+        self.full_conn = nn.Linear(hidden_feat_size, hidden_feat_size)
         self.activate = nn.Sigmoid()
 
     def gcn_msg(self, edge):  # 结点到边的信息传递（通过src和dst获取源点和目标点的特征）
@@ -111,18 +112,19 @@ class SingleLayer(nn.Module):
 
     def gcn_reduce(self, node):  # 边到结点的汇聚（通过mailbox函数获取结点的邻边的所有信息）
         # 选取n个结点*feature，选择多少个结点是临时决定的（由计算量决定）
-        node_mail = torch.sum(node.mailbox['edge_mail'], 1)  # 代表把边进行汇合
+        node_mail = torch.mean(node.mailbox['edge_mail'], 1)  # 代表把边进行汇合
+        # TODO sum 改成了 mean
         return {'mail': node_mail}
 
     def edge_update(self, edge):
         pseud_converge = edge.src['mail']-edge.data['hidden']
-        feature_mm = torch.mm(pseud_converge, self.weight_h2h_edge)
-        feature_add_init = torch.add(feature_mm, edge.data['init'])
-        feature_act = self.activate(feature_add_init)
+        feature_add_init = torch.add(pseud_converge, edge.data['init'])
+        feature_mm = self.full_conn(feature_add_init)
+        feature_act = self.activate(feature_mm)
         return {'hidden': feature_act}
 
     def forward(self, dgl_data: dgl.DGLGraph):
-        # 注意这个函数指挥更新node feature
+        # 注意这个函数只会更新node feature
         dgl_data.update_all(self.gcn_msg, self.gcn_reduce)
         dgl_data.apply_edges(self.edge_update)
         return dgl_data
