@@ -17,7 +17,7 @@ class splitor():
         self.test_data = self.data[cut2:]
 
     def split_rate(self, string):
-        nums = list(map(int, string.split('_')))
+        nums = list(map(int, string.split(' ')))
         sums = sum(nums)
         result = [item/sums for item in nums]
         return result

@@ -7,7 +7,7 @@ def init_train_pars():
     parser.add_argument('--gpu', type=int, default=-1, help="gpu")
     # 数据相关
     parser.add_argument('--data_path', type=str, default='Data/bbbp.csv')
-    parser.add_argument('--split', type=str, default='8_1_1')
+    parser.add_argument('--split', type=str, default='8 1 1')
     # 模型相关参数
     parser.add_argument('--hidden_feat_size', type=int, default=300)
     parser.add_argument('--atom_feat_size', type=int, default=-1)
